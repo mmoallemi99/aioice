@@ -24,6 +24,8 @@ ICE_FAILED = 2
 CONSENT_FAILURES = 6
 CONSENT_INTERVAL = 5
 
+PORT_RETRY_THRESHOLD = 3
+
 connection_id = count()
 protocol_id = count()
 
@@ -284,6 +286,7 @@ class Connection:
         turn_transport: str = "udp",
         use_ipv4: bool = True,
         use_ipv6: bool = True,
+        port_range: Union[Tuple[int, int], int] = 0
     ) -> None:
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
@@ -328,6 +331,7 @@ class Connection:
         self._tie_breaker = secrets.randbits(64)
         self._use_ipv4 = use_ipv4
         self._use_ipv6 = use_ipv6
+        self.port_range = port_range
 
     @property
     def local_candidates(self) -> List[Candidate]:
@@ -828,6 +832,16 @@ class Connection:
                 return pair
         return None
 
+    def get_random_port_in_range(self):
+        if isinstance(self.port_range, int):
+            port_number = self.port_range
+        elif isinstance(self.port_range, tuple):
+            port_number = random.randint(*self.port_range)
+        else:
+            port_number = 0
+
+        return port_number
+
     async def get_component_candidates(
         self, component: int, addresses: List[str], timeout: int = 5
     ) -> List[Candidate]:
@@ -838,13 +852,22 @@ class Connection:
         host_protocols = []
         for address in addresses:
             # create transport
-            try:
-                _, protocol = await loop.create_datagram_endpoint(
-                    lambda: StunProtocol(self), local_addr=(address, 0)
-                )
-            except OSError as exc:
-                self.__log_info("Could not bind to %s - %s", address, exc)
+            retry_count = 0
+            while retry_count < PORT_RETRY_THRESHOLD:
+                try:
+                    port_number = self.get_random_port_in_range()
+                    _, protocol = await loop.create_datagram_endpoint(
+                        lambda: StunProtocol(self), local_addr=(address, port_number)
+                    )
+                    break
+                except OSError as exc:
+                    retry_count += 1
+                    self.__log_info("Could not bind to %s - %s", address, exc)
+                    continue
+
+            if 'protocol' not in locals():
                 continue
+
             protocol = cast(StunProtocol, protocol)
             host_protocols.append(protocol)
 
