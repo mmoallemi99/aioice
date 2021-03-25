@@ -286,7 +286,7 @@ class Connection:
         turn_transport: str = "udp",
         use_ipv4: bool = True,
         use_ipv6: bool = True,
-        port_range: Union[Tuple[int, int], int] = (6900, 8500)
+        port_range: Union[Tuple[int, int], int] = (6900, 6990)
     ) -> None:
         self.ice_controlling = ice_controlling
         #: Local username, automatically set to a random value.
